@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import {
   Menu,
   X,
@@ -16,6 +16,8 @@ import {
   Settings,
 } from "./components/Icons";
 import { api, useCart } from "./main";
+
+const BurgerScene = lazy(() => import("./components/BurgerScene"));
 
 const money = new Intl.NumberFormat("pt-BR", {
   style: "currency",
@@ -120,11 +122,15 @@ function Hero({ settings }) {
           <div className="orange-orbit" />
           <Flame className="spark one" />
           <Flame className="spark two" />
-          <img
-            src={settings.hero_image || "/assets/hero-burger.png"}
-            alt="Hambúrguer artesanal em destaque"
-            fetchPriority="high"
-          />
+          <Suspense
+            fallback={
+              <div className="burger-scene burger-scene-loading">
+                <span className="burger-scene-loader" />
+              </div>
+            }
+          >
+            <BurgerScene />
+          </Suspense>
         </div>
       </div>
     </section>
@@ -539,8 +545,8 @@ function About({ settings }) {
           <div className="about-photo-accent" aria-hidden="true" />
           <img
             className="about-photo"
-            src="/assets/sobre-encantos.png"
-            alt="Responsáveis pela Encantos Burger segurando um certificado de qualidade"
+            src="/assets/equipe-encantos.png"
+            alt="Equipe da Encantos Burger reunida no estabelecimento"
             loading="lazy"
           />
         </div>
