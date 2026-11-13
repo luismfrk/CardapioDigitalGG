@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Menu,
   X,
@@ -16,8 +16,6 @@ import {
   Settings,
 } from "./components/Icons";
 import { api, useCart } from "./main";
-
-const BurgerScene = lazy(() => import("./components/BurgerScene"));
 
 const money = new Intl.NumberFormat("pt-BR", {
   style: "currency",
@@ -101,36 +99,31 @@ function Header({ settings, catalogPage = false }) {
 }
 function Hero({ settings }) {
   return (
-    <section id="inicio" className="hero">
+    <section id="inicio" className="hero hero-owner-style">
+      <div className="hero-collage" aria-hidden="true" />
       <div className="container hero-grid">
+        <div className="hero-owner-visual">
+          <img
+            src="/assets/hero-dono-encantos.png"
+            alt="Dono da Encantos Burger apresentando dois hambúrgueres artesanais"
+            fetchPriority="high"
+          />
+        </div>
         <div className="hero-copy">
+          <p className="hero-kicker">ENCANTOS BURGER</p>
           <h1>
             {titleParts(settings.hero_title || "SEU PRÓXIMO BURGER FAVORITO.")}
           </h1>
-          <div className="hero-bursts" aria-hidden="true">
-            <i />
-            <i />
-            <i />
+          <div className="hero-quality-line">
+            <span>SABOR ARTESANAL</span>
+            <b>+</b>
+            <span>QUALIDADE</span>
           </div>
-          <p>{settings.hero_subtitle}</p>
+          <p className="hero-signature">{settings.hero_subtitle}</p>
           <a href="/cardapio" className="btn big">
             <ShoppingBag /> {settings.hero_button || "Ver cardápio"}{" "}
             <ArrowRight />
           </a>
-        </div>
-        <div className="hero-visual" aria-label="Hambúrguer em destaque">
-          <div className="orange-orbit" />
-          <Flame className="spark one" />
-          <Flame className="spark two" />
-          <Suspense
-            fallback={
-              <div className="burger-scene burger-scene-loading">
-                <span className="burger-scene-loader" />
-              </div>
-            }
-          >
-            <BurgerScene />
-          </Suspense>
         </div>
       </div>
     </section>

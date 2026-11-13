@@ -28,7 +28,6 @@
     "react": "latest",
     "react-dom": "latest",
     "react-router-dom": "latest",
-    "three": "^0.187.0",
     "vite": "latest"
   },
   "devDependencies": {
