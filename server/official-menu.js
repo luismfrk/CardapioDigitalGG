@@ -469,6 +469,12 @@ const sweetPizzas = [
   ["Banana", "Mussarela, banana, chocolate branco e canela.", 6000, 6500],
 ];
 
+// Fotos oficiais identificadas por nome nas publicações do Instagram da marca.
+// Só preenche itens sem imagem para não sobrescrever alterações feitas no painel.
+const officialProductImages = {
+  "GG Burger": "/assets/menu/gg-burger-instagram.jpg",
+};
+
 export function importOfficialMenu(db) {
   const categoryId = db.prepare(
     "SELECT id FROM categories WHERE lower(name)=lower(?) LIMIT 1",
@@ -486,6 +492,12 @@ export function importOfficialMenu(db) {
       if (cat && !exists.get(cat.id, name))
         insert.run(name, description, description, price, cat.id, order++);
     }
+    const setOfficialImage = db.prepare(
+      "UPDATE products SET image_url=? WHERE lower(name)=lower(?) AND image_url=''",
+    );
+    Object.entries(officialProductImages).forEach(([name, imageUrl]) =>
+      setOfficialImage.run(imageUrl, name),
+    );
     const addPizza = (category, [name, description, medium, large]) => {
       const cat = categoryId.get(category);
       if (!cat || exists.get(cat.id, name)) return;
