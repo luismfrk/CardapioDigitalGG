@@ -3213,3 +3213,67 @@ footer .brand-logo {
     grid-template-columns: 1fr;
   }
 }
+
+/* Enquadramento do hero em desktop e notebooks */
+@media (min-width: 1081px) {
+  .hero-owner-style .hero-grid {
+    grid-template-columns: minmax(500px, 0.94fr) minmax(0, 1.06fr);
+  }
+
+  .hero-owner-visual img {
+    right: 0;
+    width: min(610px, 47vw);
+  }
+
+  .hero-owner-style .hero-copy {
+    padding-right: 0;
+    padding-left: 46px;
+  }
+
+  .hero-owner-style .hero-copy h1 {
+    max-width: 680px;
+    font-size: clamp(78px, 5.3vw, 100px);
+    line-height: 0.82;
+  }
+
+  .hero-quality-line {
+    gap: 14px;
+    font-size: clamp(23px, 1.7vw, 31px);
+  }
+
+  .hero-owner-style .hero-signature {
+    margin-left: 9%;
+    font-size: clamp(35px, 2.8vw, 49px);
+  }
+}
+
+@media (min-width: 821px) and (max-width: 1080px) {
+  .hero-owner-style .hero-grid {
+    grid-template-columns: minmax(360px, 0.9fr) minmax(0, 1.1fr);
+  }
+
+  .hero-owner-visual img {
+    right: -2%;
+    width: min(540px, 53vw);
+  }
+
+  .hero-owner-style .hero-copy {
+    padding-left: 34px;
+  }
+
+  .hero-owner-style .hero-copy h1 {
+    max-width: 560px;
+    font-size: clamp(66px, 7vw, 78px);
+  }
+
+  .hero-quality-line {
+    gap: 10px;
+    font-size: clamp(20px, 2.2vw, 25px);
+    letter-spacing: 0.11em;
+  }
+
+  .hero-owner-style .hero-signature {
+    margin-left: 5%;
+    font-size: clamp(32px, 3.4vw, 42px);
+  }
+}
