@@ -1,6 +1,5 @@
 {
   "rewrites": [
-    { "source": "/api/catalog", "destination": "/catalog.json" },
     { "source": "/cardapio", "destination": "/index.html" },
     { "source": "/admin", "destination": "/index.html" },
     { "source": "/admin/:path*", "destination": "/index.html" }

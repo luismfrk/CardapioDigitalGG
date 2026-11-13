@@ -4,6 +4,9 @@ output/
 .playwright-cli/
 public/catalog.json
 .env
+.env.local
+.vercel/
+.neon
 data/*.db*
 uploads/*
 !uploads/.gitkeep
