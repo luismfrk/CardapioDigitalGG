@@ -716,6 +716,50 @@ footer {
   flex-direction: row;
   margin: 0;
 }
+.payment-fieldset {
+  margin: 0 0 15px;
+  padding: 0;
+  border: 0;
+}
+.payment-fieldset legend {
+  margin-bottom: 9px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.payment-options {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.payment-options label {
+  min-height: 46px;
+  margin: 0;
+  padding: 10px 8px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: row;
+  border: 1px solid #454545;
+  border-radius: 10px;
+  background: #121212;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    color 0.2s ease;
+}
+.payment-options label:hover,
+.payment-options label.selected {
+  color: #101010;
+  border-color: var(--orange);
+  background: var(--orange);
+}
+.payment-options input {
+  width: 16px;
+  min-height: 16px;
+  margin: 0;
+  padding: 0;
+  accent-color: #101010;
+}
 .form-message {
   display: flex;
   gap: 8px;

@@ -317,6 +317,8 @@ function Cart({ catalog }) {
     name: "",
     type: "pickup",
     address: "",
+    payment: "",
+    changeFor: "",
     notes: "",
   });
   const [message, setMessage] = useState("");
@@ -326,6 +328,7 @@ function Cart({ catalog }) {
     if (!form.name.trim()) return setMessage("Informe seu nome.");
     if (form.type === "delivery" && !form.address.trim())
       return setMessage("Informe o endereço de entrega.");
+    if (!form.payment) return setMessage("Escolha uma forma de pagamento.");
     let validation;
     try {
       validation = await api("/api/cart/validate", {
@@ -379,8 +382,15 @@ function Cart({ catalog }) {
     lines.push(
       `Nome: ${form.name}`,
       `Modalidade: ${form.type === "delivery" ? "Entrega" : "Retirada"}`,
+      `Pagamento: ${{ pix: "PIX", card: "Cartão", cash: "Dinheiro" }[form.payment]}`,
     );
     if (form.address) lines.push(`Endereço: ${form.address}`);
+    if (form.payment === "cash")
+      lines.push(
+        form.changeFor.trim()
+          ? `Troco para: ${form.changeFor.trim()}`
+          : "Troco: não precisa",
+      );
     if (form.notes) lines.push(`Observações: ${form.notes}`);
     window.open(
       `https://wa.me/${settings.whatsapp.replace(/\D/g, "")}?text=${encodeURIComponent(lines.join("\n"))}`,
@@ -500,6 +510,60 @@ function Cart({ catalog }) {
                     value={form.address}
                     onChange={(e) =>
                       setForm({ ...form, address: e.target.value })
+                    }
+                  />
+                </label>
+              )}
+              <fieldset className="payment-fieldset">
+                <legend>Forma de pagamento</legend>
+                <div className="payment-options">
+                  <label className={form.payment === "pix" ? "selected" : ""}>
+                    <input
+                      type="radio"
+                      name="payment"
+                      value="pix"
+                      checked={form.payment === "pix"}
+                      onChange={(e) =>
+                        setForm({ ...form, payment: e.target.value })
+                      }
+                    />
+                    PIX
+                  </label>
+                  <label className={form.payment === "card" ? "selected" : ""}>
+                    <input
+                      type="radio"
+                      name="payment"
+                      value="card"
+                      checked={form.payment === "card"}
+                      onChange={(e) =>
+                        setForm({ ...form, payment: e.target.value })
+                      }
+                    />
+                    Cartão
+                  </label>
+                  <label className={form.payment === "cash" ? "selected" : ""}>
+                    <input
+                      type="radio"
+                      name="payment"
+                      value="cash"
+                      checked={form.payment === "cash"}
+                      onChange={(e) =>
+                        setForm({ ...form, payment: e.target.value })
+                      }
+                    />
+                    Dinheiro
+                  </label>
+                </div>
+              </fieldset>
+              {form.payment === "cash" && (
+                <label>
+                  Troco para (opcional)
+                  <input
+                    value={form.changeFor}
+                    inputMode="decimal"
+                    placeholder="Ex.: R$ 100,00"
+                    onChange={(e) =>
+                      setForm({ ...form, changeFor: e.target.value })
                     }
                   />
                 </label>
