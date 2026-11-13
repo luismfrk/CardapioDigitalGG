@@ -6,7 +6,7 @@ import {
   Routes,
   useNavigate,
 } from "react-router-dom";
-import { api } from "../main";
+import { api, useCart } from "../main";
 import {
   LayoutDashboard,
   Package,
@@ -1123,6 +1123,7 @@ function SettingsPage({ data, reload, appearance = false }) {
   );
 }
 export default function Admin() {
+  const cart = useCart();
   const [user, setUser] = useState(undefined);
   const [data, setData] = useState(null);
   const load = async () => {
@@ -1169,7 +1170,10 @@ export default function Admin() {
       user={user}
       reload={load}
       onLogout={() =>
-        api("/api/auth/logout", { method: "POST" }).then(() => setUser(null))
+        api("/api/auth/logout", { method: "POST" }).then(() => {
+          cart.clear();
+          setUser(null);
+        })
       }
     />
   );

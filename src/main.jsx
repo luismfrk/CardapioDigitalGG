@@ -62,12 +62,18 @@ function CartProvider({ children }) {
         ? old.filter((_, i) => i !== index)
         : old.map((x, i) => (i === index ? { ...x, qty } : x)),
     );
+  const clear = () => {
+    localStorage.removeItem(key);
+    setItems([]);
+    setOpen(false);
+  };
   const value = useMemo(
     () => ({
       items,
       setItems,
       add,
       update,
+      clear,
       open,
       setOpen,
       count: items.reduce((s, i) => s + i.qty, 0),
