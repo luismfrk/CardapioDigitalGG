@@ -1,0 +1,9 @@
+node_modules/
+dist/
+output/
+.playwright-cli/
+.env
+data/*.db*
+uploads/*
+!uploads/.gitkeep
+!data/.gitkeep
