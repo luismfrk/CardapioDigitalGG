@@ -24,9 +24,9 @@ CREATE TABLE IF NOT EXISTS migrations (id INTEGER PRIMARY KEY, name TEXT UNIQUE 
 const settings = {
   business_name: "Encantos Burger",
   whatsapp: "",
-  instagram: "",
-  address: "",
-  hours: "",
+  instagram: "encantosburguer",
+  address: "R. Hilário Wavruk, 82-SW, sala 01 — Centro, Mallet - PR, 84570-000",
+  hours: "Terça a sexta e domingo: 17h às 23h. Sábado: 17h à 1h.",
   logo_url: "",
   delivery_enabled: "1",
   pickup_enabled: "1",

@@ -326,10 +326,24 @@ function Cart({ catalog }) {
     if (!form.name.trim()) return setMessage("Informe seu nome.");
     if (form.type === "delivery" && !form.address.trim())
       return setMessage("Informe o endereço de entrega.");
-    const validation = await api("/api/cart/validate", {
-      method: "POST",
-      body: JSON.stringify({ items: cart.items }),
-    });
+    let validation;
+    try {
+      validation = await api("/api/cart/validate", {
+        method: "POST",
+        body: JSON.stringify({ items: cart.items }),
+      });
+    } catch {
+      validation = {
+        products: catalog.products.map((product) => ({
+          id: product.id,
+          name: product.name,
+          price: product.price,
+          promo_price: product.promo_price,
+          available: product.available,
+          visible: product.visible,
+        })),
+      };
+    }
     const changes = [];
     for (const item of cart.items) {
       const live = validation.products.find((p) => p.id === item.productId);
