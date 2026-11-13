@@ -13,6 +13,7 @@ import {
   Clock,
   Check,
   AlertCircle,
+  Settings,
 } from "./components/Icons";
 import { api, useCart } from "./main";
 
@@ -614,17 +615,22 @@ function Footer({ settings }) {
       </div>
       <div className="footer-bottom">
         <div className="container">
-          © {new Date().getFullYear()} {settings.business_name}.{" "}
-          <span>
-            Developed by{" "}
-            <a
-              href="https://www.instagram.com/luis.mfrk/"
-              target="_blank"
-              rel="noreferrer"
-            >
-              @luis.mfrk
-            </a>
-          </span>
+          <div className="footer-credits">
+            © {new Date().getFullYear()} {settings.business_name}.{" "}
+            <span>
+              Developed by{" "}
+              <a
+                href="https://www.instagram.com/luis.mfrk/"
+                target="_blank"
+                rel="noreferrer"
+              >
+                @luis.mfrk
+              </a>
+            </span>
+          </div>
+          <a className="admin-entry-link" href="/admin">
+            <Settings /> Painel administrativo
+          </a>
         </div>
       </div>
     </footer>
