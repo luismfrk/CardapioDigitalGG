@@ -601,7 +601,16 @@ function Footer({ settings }) {
       <div className="footer-bottom">
         <div className="container">
           © {new Date().getFullYear()} {settings.business_name}.{" "}
-          <span>Dados de contato ainda podem depender de configuração.</span>
+          <span>
+            Developed by{" "}
+            <a
+              href="https://www.instagram.com/luis.mfrk/"
+              target="_blank"
+              rel="noreferrer"
+            >
+              @luis.mfrk
+            </a>
+          </span>
         </div>
       </div>
     </footer>

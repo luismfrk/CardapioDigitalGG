@@ -519,6 +519,13 @@ footer {
   color: #777;
   font-size: 12px;
 }
+.footer-bottom a {
+  color: var(--orange);
+  font-weight: 700;
+}
+.footer-bottom a:hover {
+  color: var(--cream);
+}
 .cart-drawer {
   position: fixed;
   inset: 0;
