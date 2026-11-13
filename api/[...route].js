@@ -14,7 +14,11 @@ const send = (res, status, body) => {
 };
 const pathOf = (req) => {
   const parts = req.query.route;
-  return `/${Array.isArray(parts) ? parts.join("/") : parts || ""}`;
+  if (parts) return `/${Array.isArray(parts) ? parts.join("/") : parts}`;
+  return new URL(req.url, "https://encantos.local").pathname.replace(
+    /^\/api/,
+    "",
+  );
 };
 const asId = (value) => Number.parseInt(value, 10);
 const cookieToken = (req) =>
