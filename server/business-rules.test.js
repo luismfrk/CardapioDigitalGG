@@ -44,6 +44,29 @@ test("agenda considera intervalo que atravessa a meia-noite em São Paulo", () =
   );
 });
 
+test("agenda oficial fecha na segunda e abre terça às 17h", () => {
+  const settings = {
+    open_mode: "hours",
+    schedule_json: JSON.stringify({
+      0: [{ open: "17:00", close: "23:00" }],
+      1: [],
+      2: [{ open: "17:00", close: "23:00" }],
+      3: [{ open: "17:00", close: "23:00" }],
+      4: [{ open: "17:00", close: "23:00" }],
+      5: [{ open: "17:00", close: "23:00" }],
+      6: [{ open: "17:00", close: "01:00" }],
+    }),
+  };
+  assert.equal(
+    storeStatus(settings, new Date("2026-11-16T21:00:00Z")).open,
+    false,
+  );
+  assert.equal(
+    storeStatus(settings, new Date("2026-11-17T21:00:00Z")).open,
+    true,
+  );
+});
+
 test("cotação usa preço do servidor e soma taxa de entrega", () => {
   const result = validateCart({
     ...base,

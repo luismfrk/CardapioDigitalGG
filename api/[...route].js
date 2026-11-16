@@ -8,6 +8,7 @@ import {
   inspectImage,
   normalizeWhatsApp,
   parseSchedule,
+  storeStatus,
   validateCategoryPayload,
   validateCart,
   validateGroupPayload,
@@ -75,6 +76,7 @@ const catalog = async () => {
     categories: categories.rows,
     products: products.rows,
     settings: appSettings,
+    store: storeStatus(appSettings),
   };
 };
 const currentAdmin = async (req) => {

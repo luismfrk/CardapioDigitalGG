@@ -13,6 +13,7 @@ import {
   inspectImage,
   normalizeWhatsApp,
   parseSchedule,
+  storeStatus,
   validateCategoryPayload,
   validateCart,
   validateGroupPayload,
@@ -204,7 +205,10 @@ const syncGroupRelations = (groupId, body) => {
   for (const productId of body.product_ids || []) link.run(productId, groupId);
 };
 
-app.get("/api/catalog", (_req, res) => res.json(publicCatalog()));
+app.get("/api/catalog", (_req, res) => {
+  const data = publicCatalog();
+  res.json({ ...data, store: storeStatus(data.settings) });
+});
 app.post("/api/cart/validate", (req, res) => {
   const result = validateCart({
     cartItems: req.body.items,

@@ -351,6 +351,7 @@ function Cart({ catalog }) {
   });
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [store, setStore] = useState(catalog.store);
   const settings = catalog.settings;
   const checkout = async () => {
     setMessage("");
@@ -375,6 +376,7 @@ function Cart({ catalog }) {
       });
     } catch (error) {
       setSubmitting(false);
+      if (error.data?.store) setStore(error.data.store);
       return setMessage(
         error.data?.errors?.join(" ") ||
           "Não foi possível validar o pedido. Tente novamente.",
@@ -475,7 +477,23 @@ function Cart({ catalog }) {
             <X />
           </button>
         </div>
-        {!cart.items.length ? (
+        {store && !store.open ? (
+          <div className="closed-store" role="status">
+            <img
+              src="/assets/loja-fechada-encantos.webp"
+              alt="Responsável pela Encantos Burger aguardando o próximo horário de atendimento"
+            />
+            <div>
+              <small>ESTAMOS FECHADOS AGORA</small>
+              <h3>Desculpe, não conseguimos receber seu pedido.</h3>
+              <p>
+                Nosso atendimento funciona de terça a sexta e domingo, das 17h
+                às 23h, e sábado, das 17h à 1h.
+              </p>
+              <p>Seu carrinho ficará disponível durante esta sessão.</p>
+            </div>
+          </div>
+        ) : !cart.items.length ? (
           <div className="empty">
             <ShoppingBag />
             <h3>Seu carrinho está vazio</h3>
