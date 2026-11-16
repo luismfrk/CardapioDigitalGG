@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS option_items (id INTEGER PRIMARY KEY, group_id INTEGE
 CREATE TABLE IF NOT EXISTS product_option_groups (product_id INTEGER REFERENCES products(id) ON DELETE CASCADE, group_id INTEGER REFERENCES option_groups(id) ON DELETE CASCADE, PRIMARY KEY(product_id, group_id));
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS migrations (id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL, applied_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS login_attempts (key TEXT PRIMARY KEY, attempts INTEGER NOT NULL DEFAULT 0, window_started INTEGER NOT NULL, blocked_until INTEGER);
 `);
 
 const settings = {
@@ -39,6 +40,7 @@ const settings = {
   notice: "",
   open_mode: "manual",
   manual_open: "1",
+  schedule_json: "",
   hero_title: "SEU PRÓXIMO BURGER FAVORITO.",
   hero_subtitle: "Sabor artesanal em cada mordida.",
   hero_image: "/assets/hero-burger.png",
@@ -134,7 +136,7 @@ export const publicCatalog = () => {
     .all();
   const products = db
     .prepare(
-      `SELECT p.*, c.name category_name FROM products p JOIN categories c ON c.id=p.category_id WHERE p.visible=1 AND c.active=1 ORDER BY p.sort_order,p.name`,
+      `SELECT p.*, c.name category_name FROM products p JOIN categories c ON c.id=p.category_id WHERE p.visible=1 AND c.active=1 ORDER BY c.sort_order,c.name,p.sort_order,p.name`,
     )
     .all();
   const groups = db

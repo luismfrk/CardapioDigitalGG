@@ -44,8 +44,12 @@ const nav = [
 function Login({ onLogin }) {
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const submit = async (e) => {
     e.preventDefault();
+    if (submitting) return;
+    setSubmitting(true);
+    setError("");
     try {
       await api("/api/auth/login", {
         method: "POST",
@@ -54,6 +58,8 @@ function Login({ onLogin }) {
       onLogin();
     } catch (err) {
       setError(err.message);
+    } finally {
+      setSubmitting(false);
     }
   };
   return (
@@ -91,7 +97,9 @@ function Login({ onLogin }) {
             onChange={(e) => setForm({ ...form, password: e.target.value })}
           />
         </label>
-        <button className="btn full">Entrar</button>
+        <button className="btn full" disabled={submitting}>
+          {submitting ? "Entrando..." : "Entrar"}
+        </button>
         <small>
           Não há cadastro público. O primeiro acesso é criado pelo terminal.
         </small>
@@ -1006,11 +1014,21 @@ function SettingsPage({ data, reload, appearance = false }) {
         "order_intro",
         "open_mode",
         "manual_open",
+        "schedule_json",
       ];
   const [form, setForm] = useState(
     Object.fromEntries(keys.map((k) => [k, data.settings[k] || ""])),
   );
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    setForm(
+      Object.fromEntries(keys.map((key) => [key, data.settings[key] || ""])),
+    );
+    setSaved(false);
+    setError("");
+  }, [appearance, data.settings]);
   const labels = {
     business_name: "Nome",
     logo_url: "Logo",
@@ -1027,16 +1045,28 @@ function SettingsPage({ data, reload, appearance = false }) {
     hero_image: "Imagem principal",
     about: "Texto Sobre",
     notice: "Aviso temporário",
+    schedule_json: "Agenda semanal (JSON; dias 0=domingo a 6=sábado)",
   };
   const save = async (e) => {
     e.preventDefault();
-    await api("/api/admin/settings", {
-      method: "PUT",
-      body: JSON.stringify(form),
-    });
-    setSaved(true);
-    reload();
-    setTimeout(() => setSaved(false), 2500);
+    setSaving(true);
+    setError("");
+    try {
+      await api("/api/admin/settings", {
+        method: "PUT",
+        body: JSON.stringify({
+          section: appearance ? "appearance" : "business",
+          values: form,
+        }),
+      });
+      setSaved(true);
+      await reload();
+      setTimeout(() => setSaved(false), 2500);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setSaving(false);
+    }
   };
   return (
     <section className="admin-page">
@@ -1051,6 +1081,11 @@ function SettingsPage({ data, reload, appearance = false }) {
             Alterações salvas e publicadas no catálogo.
           </div>
         )}
+        {error && (
+          <div className="admin-alert error">
+            <AlertCircle /> {error}
+          </div>
+        )}
         {keys.map((k) =>
           k === "hero_image" || k === "logo_url" ? (
             <div key={k}>
@@ -1060,9 +1095,14 @@ function SettingsPage({ data, reload, appearance = false }) {
                 onChange={(v) => setForm({ ...form, [k]: v })}
               />
             </div>
-          ) : ["about", "notice", "hours", "address", "order_intro"].includes(
-              k,
-            ) ? (
+          ) : [
+              "about",
+              "notice",
+              "hours",
+              "address",
+              "order_intro",
+              "schedule_json",
+            ].includes(k) ? (
             <label key={k}>
               {labels[k]}
               <textarea
@@ -1117,7 +1157,9 @@ function SettingsPage({ data, reload, appearance = false }) {
             </label>
           ),
         )}
-        <button className="btn">Salvar alterações</button>
+        <button className="btn" disabled={saving}>
+          {saving ? "Salvando..." : "Salvar alterações"}
+        </button>
       </form>
     </section>
   );
@@ -1126,12 +1168,18 @@ export default function Admin() {
   const cart = useCart();
   const [user, setUser] = useState(undefined);
   const [data, setData] = useState(null);
+  const [loadError, setLoadError] = useState("");
   const load = async () => {
-    const [all, dashboard] = await Promise.all([
-      api("/api/admin/all"),
-      api("/api/admin/dashboard"),
-    ]);
-    setData({ ...all, dashboard });
+    setLoadError("");
+    try {
+      const [all, dashboard] = await Promise.all([
+        api("/api/admin/all"),
+        api("/api/admin/dashboard"),
+      ]);
+      setData({ ...all, dashboard });
+    } catch (error) {
+      setLoadError(error.message);
+    }
   };
   useEffect(() => {
     api("/api/auth/me")
@@ -1157,6 +1205,17 @@ export default function Admin() {
           })
         }
       />
+    );
+  if (loadError)
+    return (
+      <main className="load-state">
+        <AlertCircle />
+        <h1>Não foi possível carregar o painel</h1>
+        <p>{loadError}</p>
+        <button className="btn" onClick={load}>
+          Tentar novamente
+        </button>
+      </main>
     );
   if (!data)
     return (

@@ -12,12 +12,23 @@ import Admin from "./admin/Admin";
 import "./styles.css";
 
 export const api = async (url, options = {}) => {
+  const isFormData = options.body instanceof FormData;
   const res = await fetch(url, {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    headers: {
+      ...(isFormData ? {} : { "Content-Type": "application/json" }),
+      ...(options.headers || {}),
+    },
     ...options,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || "Falha na operação.");
+  if (!res.ok) {
+    const error = new Error(
+      data.error || data.errors?.join(" ") || "Falha na operação.",
+    );
+    error.status = res.status;
+    error.data = data;
+    throw error;
+  }
   return data;
 };
 const CartContext = createContext();

@@ -2,6 +2,18 @@ import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import pg from "pg";
 import { attachDatabasePool } from "@vercel/functions";
+import { put } from "@vercel/blob";
+import Busboy from "busboy";
+import {
+  inspectImage,
+  normalizeWhatsApp,
+  parseSchedule,
+  validateCategoryPayload,
+  validateCart,
+  validateGroupPayload,
+  validateImageUrl,
+  validateProductPayload,
+} from "../server/business-rules.js";
 
 const { Pool, types } = pg;
 types.setTypeParser(20, Number);
@@ -38,7 +50,7 @@ const catalog = async () => {
         "SELECT * FROM categories WHERE active ORDER BY sort_order,name",
       ),
       pool.query(
-        "SELECT p.*,c.name category_name FROM products p JOIN categories c ON c.id=p.category_id WHERE p.visible AND c.active ORDER BY p.sort_order,p.name",
+        "SELECT p.*,c.name category_name FROM products p JOIN categories c ON c.id=p.category_id WHERE p.visible AND c.active ORDER BY c.sort_order,c.name,p.sort_order,p.name",
       ),
       pool.query("SELECT * FROM option_groups WHERE active"),
       pool.query("SELECT * FROM option_items WHERE active"),
@@ -88,17 +100,146 @@ const transaction = async (task) => {
     client.release();
   }
 };
+const APPEARANCE_KEYS = new Set([
+  "hero_title",
+  "hero_subtitle",
+  "hero_button",
+  "hero_image",
+  "about",
+  "notice",
+]);
+const BUSINESS_KEYS = new Set([
+  "business_name",
+  "logo_url",
+  "whatsapp",
+  "instagram",
+  "address",
+  "hours",
+  "delivery_enabled",
+  "pickup_enabled",
+  "delivery_fee_mode",
+  "delivery_fee",
+  "minimum_order",
+  "order_intro",
+  "open_mode",
+  "manual_open",
+  "schedule_json",
+]);
+const validateSettings = (section, values) => {
+  const allowed =
+    section === "appearance"
+      ? APPEARANCE_KEYS
+      : section === "business"
+        ? BUSINESS_KEYS
+        : null;
+  if (!allowed) return "Seção de configurações inválida.";
+  if (!values || typeof values !== "object" || Array.isArray(values))
+    return "Configurações inválidas.";
+  if (Object.keys(values).some((key) => !allowed.has(key)))
+    return "A seção contém uma configuração não permitida.";
+  for (const [key, value] of Object.entries(values)) {
+    if (String(value ?? "").length > 2000)
+      return `O campo ${key} excede o limite permitido.`;
+  }
+  if (values.whatsapp && !normalizeWhatsApp(values.whatsapp))
+    return "Informe o WhatsApp com DDI e DDD.";
+  if (values.logo_url && !validateImageUrl(values.logo_url))
+    return "A URL da logo é inválida.";
+  if (values.hero_image && !validateImageUrl(values.hero_image))
+    return "A URL da imagem principal é inválida.";
+  if (values.open_mode && !["manual", "hours"].includes(values.open_mode))
+    return "Modo de funcionamento inválido.";
+  if (
+    values.delivery_fee_mode &&
+    !["fixed", "consult"].includes(values.delivery_fee_mode)
+  )
+    return "Modo da taxa de entrega inválido.";
+  for (const key of ["delivery_fee", "minimum_order"])
+    if (
+      values[key] !== undefined &&
+      values[key] !== "" &&
+      (!Number.isSafeInteger(Number(values[key])) || Number(values[key]) < 0)
+    )
+      return `${key} deve ser informado em centavos, sem casas decimais.`;
+  if (values.schedule_json && !parseSchedule(values.schedule_json))
+    return "A agenda semanal contém horários inválidos.";
+  return "";
+};
+const parseMultipartImage = (req) =>
+  new Promise((resolve, reject) => {
+    const busboy = Busboy({
+      headers: req.headers,
+      limits: { files: 1, fileSize: 5 * 1024 * 1024, fields: 0 },
+    });
+    const chunks = [];
+    let tooLarge = false;
+    busboy.on("file", (_name, stream) => {
+      stream.on("data", (chunk) => chunks.push(chunk));
+      stream.on("limit", () => {
+        tooLarge = true;
+      });
+    });
+    busboy.on("error", reject);
+    busboy.on("finish", () => {
+      if (tooLarge)
+        return reject(
+          Object.assign(new Error("Imagem acima de 5 MB."), { status: 413 }),
+        );
+      resolve(Buffer.concat(chunks));
+    });
+    if (Buffer.isBuffer(req.body)) busboy.end(req.body);
+    else if (typeof req.body === "string") busboy.end(Buffer.from(req.body));
+    else req.pipe(busboy);
+  });
+const loginKey = (req, email) =>
+  crypto
+    .createHash("sha256")
+    .update(
+      `${req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown"}:${email}`,
+    )
+    .digest("hex");
 const replaceGroupRelations = async (client, groupId, body) => {
-  await client.query("DELETE FROM option_items WHERE group_id=$1", [groupId]);
+  const { rows: existing } = await client.query(
+    "SELECT id FROM option_items WHERE group_id=$1",
+    [groupId],
+  );
+  const existingIds = new Set(existing.map((item) => Number(item.id)));
+  const keptIds = new Set();
+  for (const item of body.items || []) {
+    const itemId = asId(item.id);
+    if (existingIds.has(itemId)) {
+      await client.query(
+        "UPDATE option_items SET name=$1,price_delta=$2,active=$3 WHERE id=$4 AND group_id=$5",
+        [
+          item.name.trim(),
+          Number(item.price_delta || 0),
+          Boolean(item.active),
+          itemId,
+          groupId,
+        ],
+      );
+      keptIds.add(itemId);
+    } else {
+      const { rows } = await client.query(
+        "INSERT INTO option_items (group_id,name,price_delta,active) VALUES ($1,$2,$3,$4) RETURNING id",
+        [
+          groupId,
+          item.name.trim(),
+          Number(item.price_delta || 0),
+          Boolean(item.active),
+        ],
+      );
+      keptIds.add(Number(rows[0].id));
+    }
+  }
+  for (const itemId of existingIds)
+    if (!keptIds.has(itemId))
+      await client.query("UPDATE option_items SET active=false WHERE id=$1", [
+        itemId,
+      ]);
   await client.query("DELETE FROM product_option_groups WHERE group_id=$1", [
     groupId,
   ]);
-  for (const item of body.items || []) {
-    await client.query(
-      "INSERT INTO option_items (group_id,name,price_delta,active) VALUES ($1,$2,$3,$4)",
-      [groupId, item.name, Number(item.price_delta || 0), Boolean(item.active)],
-    );
-  }
   for (const productId of body.product_ids || []) {
     await client.query(
       "INSERT INTO product_option_groups VALUES ($1,$2) ON CONFLICT DO NOTHING",
@@ -114,24 +255,44 @@ export default async function handler(req, res) {
     if (req.method === "GET" && path === "/catalog")
       return send(res, 200, await catalog());
     if (req.method === "POST" && path === "/cart/validate") {
-      const ids = [
-        ...new Set(
-          (body.items || [])
-            .map((item) => asId(item.productId))
-            .filter(Boolean),
-        ),
-      ];
-      if (!ids.length) return send(res, 200, { products: [] });
-      const { rows } = await pool.query(
-        "SELECT id,name,price,promo_price,available,visible FROM products WHERE id=ANY($1::bigint[])",
-        [ids],
-      );
-      return send(res, 200, { products: rows });
+      const [products, categories, groups, items, links, appSettings] =
+        await Promise.all([
+          pool.query("SELECT * FROM products"),
+          pool.query("SELECT * FROM categories"),
+          pool.query("SELECT * FROM option_groups"),
+          pool.query("SELECT * FROM option_items"),
+          pool.query("SELECT * FROM product_option_groups"),
+          settings(),
+        ]);
+      const result = validateCart({
+        cartItems: body.items,
+        fulfillment: body.fulfillment,
+        products: products.rows,
+        categories: categories.rows,
+        groups: groups.rows,
+        optionItems: items.rows,
+        links: links.rows,
+        settings: appSettings,
+      });
+      return send(res, result.ok ? 200 : 422, result);
     }
     if (req.method === "POST" && path === "/auth/login") {
       const email = String(body.email || "")
         .trim()
         .toLowerCase();
+      const attemptKey = loginKey(req, email);
+      const { rows: attempts } = await pool.query(
+        "SELECT attempts,blocked_until FROM login_attempts WHERE key=$1",
+        [attemptKey],
+      );
+      if (
+        attempts[0]?.blocked_until &&
+        new Date(attempts[0].blocked_until) > new Date()
+      )
+        return send(res, 429, {
+          error:
+            "Muitas tentativas. Aguarde alguns minutos antes de tentar novamente.",
+        });
       const { rows } = await pool.query("SELECT * FROM admins WHERE email=$1", [
         email,
       ]);
@@ -143,8 +304,18 @@ export default async function handler(req, res) {
           admin.password_hash,
         ))
       ) {
+        await pool.query(
+          `INSERT INTO login_attempts (key,attempts,window_started,blocked_until)
+           VALUES ($1,1,now(),NULL)
+           ON CONFLICT(key) DO UPDATE SET
+             attempts=CASE WHEN login_attempts.window_started < now()-interval '15 minutes' THEN 1 ELSE login_attempts.attempts+1 END,
+             window_started=CASE WHEN login_attempts.window_started < now()-interval '15 minutes' THEN now() ELSE login_attempts.window_started END,
+             blocked_until=CASE WHEN login_attempts.window_started >= now()-interval '15 minutes' AND login_attempts.attempts+1 >= 5 THEN now()+interval '15 minutes' ELSE NULL END`,
+          [attemptKey],
+        );
         return send(res, 401, { error: "E-mail ou senha inválidos." });
       }
+      await pool.query("DELETE FROM login_attempts WHERE key=$1", [attemptKey]);
       const token = crypto.randomBytes(32).toString("base64url");
       await pool.query("DELETE FROM sessions WHERE expires_at<=now()");
       await pool.query(
@@ -217,13 +388,33 @@ export default async function handler(req, res) {
       });
     }
     if (req.method === "POST" && path === "/admin/upload") {
-      return send(res, 501, {
-        error:
-          "O envio de arquivos ainda não está configurado. Use uma URL de imagem.",
-      });
+      if (!process.env.BLOB_READ_WRITE_TOKEN)
+        return send(res, 503, {
+          error:
+            "O armazenamento de imagens ainda não foi configurado. Defina BLOB_READ_WRITE_TOKEN ou use uma URL segura.",
+        });
+      const buffer = await parseMultipartImage(req);
+      const image = inspectImage(buffer);
+      if (!image)
+        return send(res, 400, {
+          error:
+            "O conteúdo do arquivo não é uma imagem JPG, PNG ou WebP válida.",
+        });
+      const blob = await put(
+        `catalogo/${Date.now()}-${crypto.randomUUID()}.${image.extension}`,
+        buffer,
+        {
+          access: "public",
+          contentType: image.contentType,
+          addRandomSuffix: false,
+        },
+      );
+      return send(res, 200, { url: blob.url });
     }
 
     if (req.method === "POST" && path === "/admin/categories") {
+      const validationError = validateCategoryPayload(body);
+      if (validationError) return send(res, 400, { error: validationError });
       const { rows } = await pool.query(
         "INSERT INTO categories (name,image_url,sort_order,active) VALUES ($1,$2,$3,$4) RETURNING id",
         [
@@ -237,6 +428,8 @@ export default async function handler(req, res) {
     }
     const category = path.match(/^\/admin\/categories\/(\d+)$/);
     if (category && req.method === "PUT") {
+      const validationError = validateCategoryPayload(body);
+      if (validationError) return send(res, 400, { error: validationError });
       await pool.query(
         "UPDATE categories SET name=$1,image_url=$2,sort_order=$3,active=$4 WHERE id=$5",
         [
@@ -263,13 +456,15 @@ export default async function handler(req, res) {
       return send(res, 200, { ok: true });
     }
 
-    const invalidPromo = () =>
-      body.promo_price && Number(body.promo_price) >= Number(body.price);
     if (req.method === "POST" && path === "/admin/products") {
-      if (invalidPromo())
-        return send(res, 400, {
-          error: "O preço promocional deve ser menor que o preço normal.",
-        });
+      const validationError = validateProductPayload(body);
+      if (validationError) return send(res, 400, { error: validationError });
+      const categoryExists = await pool.query(
+        "SELECT 1 FROM categories WHERE id=$1",
+        [asId(body.category_id)],
+      );
+      if (!categoryExists.rowCount)
+        return send(res, 400, { error: "Categoria não encontrada." });
       const { rows } = await pool.query(
         `INSERT INTO products
         (name,description,ingredients,price,promo_price,category_id,image_url,featured,available,visible,sort_order,demo)
@@ -304,10 +499,14 @@ export default async function handler(req, res) {
     }
     const product = path.match(/^\/admin\/products\/(\d+)$/);
     if (product && req.method === "PUT") {
-      if (invalidPromo())
-        return send(res, 400, {
-          error: "O preço promocional deve ser menor que o preço normal.",
-        });
+      const validationError = validateProductPayload(body);
+      if (validationError) return send(res, 400, { error: validationError });
+      const categoryExists = await pool.query(
+        "SELECT 1 FROM categories WHERE id=$1",
+        [asId(body.category_id)],
+      );
+      if (!categoryExists.rowCount)
+        return send(res, 400, { error: "Categoria não encontrada." });
       await pool.query(
         `UPDATE products SET name=$1,description=$2,ingredients=$3,price=$4,promo_price=$5,category_id=$6,
         image_url=$7,featured=$8,available=$9,visible=$10,sort_order=$11,demo=false,updated_at=now() WHERE id=$12`,
@@ -334,6 +533,8 @@ export default async function handler(req, res) {
     }
 
     if (req.method === "POST" && path === "/admin/groups") {
+      const validationError = validateGroupPayload(body);
+      if (validationError) return send(res, 400, { error: validationError });
       const groupId = await transaction(async (client) => {
         const { rows } = await client.query(
           "INSERT INTO option_groups (name,selection_type,required,min_choices,max_choices,active) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id",
@@ -353,6 +554,8 @@ export default async function handler(req, res) {
     }
     const group = path.match(/^\/admin\/groups\/(\d+)$/);
     if (group && req.method === "PUT") {
+      const validationError = validateGroupPayload(body);
+      if (validationError) return send(res, 400, { error: validationError });
       await transaction(async (client) => {
         const groupId = asId(group[1]);
         await client.query(
@@ -378,8 +581,11 @@ export default async function handler(req, res) {
       return send(res, 200, { ok: true });
     }
     if (req.method === "PUT" && path === "/admin/settings") {
+      const values = body.values;
+      const validationError = validateSettings(body.section, values);
+      if (validationError) return send(res, 400, { error: validationError });
       await transaction(async (client) => {
-        for (const [key, value] of Object.entries(body)) {
+        for (const [key, value] of Object.entries(values)) {
           await client.query(
             "INSERT INTO settings VALUES ($1,$2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             [key, String(value ?? "")],
@@ -391,6 +597,10 @@ export default async function handler(req, res) {
     return send(res, 404, { error: "Rota administrativa não encontrada." });
   } catch (error) {
     console.error(error);
-    return send(res, 500, { error: "Não foi possível concluir a operação." });
+    return send(res, error.status || 500, {
+      error: error.status
+        ? error.message
+        : "Não foi possível concluir a operação.",
+    });
   }
 }

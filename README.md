@@ -29,7 +29,7 @@ Depois de criar o primeiro administrador, use o painel:
 - **Aparência:** título, subtítulo, botão e imagem principal, texto Sobre e aviso temporário.
 - **Configurações:** logo, WhatsApp, Instagram, endereço, horários, entrega/retirada, taxa, pedido mínimo e mensagem do WhatsApp.
 
-Uploads persistentes ficam em `uploads/`; banco e sessões ficam em `data/`. Em hospedagem, esses diretórios precisam estar em volume persistente e devem entrar no backup.
+No ambiente Express, uploads ficam em `uploads/`; banco e sessões ficam em `data/`. No Vercel, imagens são enviadas ao Vercel Blob e exigem `BLOB_READ_WRITE_TOKEN`; o banco usa `DATABASE_URL` (pool) e as migrações devem usar `DATABASE_URL_UNPOOLED` (conexão direta).
 
 ## Dados ainda a preencher
 
@@ -39,6 +39,22 @@ Os três produtos iniciais (Clássico, Duplo Cheddar e Bacon Burger), suas descr
 
 ## Banco e segurança
 
-O esquema e as migrações idempotentes estão em `server/db.js`. As senhas são armazenadas com bcrypt; a sessão fica no SQLite e usa cookie `httpOnly`, `sameSite=lax` e `secure` em produção. Não existe cadastro público. Todas as rotas de gravação e upload exigem sessão administrativa.
+O esquema local está em `server/db.js`. A migração incremental do Postgres está em `migrations/001_audit_hardening.sql`; teste-a primeiro numa branch isolada do Neon e só depois aplique conscientemente em produção com a URL direta. Ela não é executada pelo build.
 
-Formatos de imagem aceitos: JPG, PNG e WebP, até 5 MB. O carrinho revalida preço, visibilidade e disponibilidade no servidor antes de montar a mensagem do WhatsApp.
+Para criar ou atualizar um administrador no Postgres, configure `DATABASE_URL_UNPOOLED` e execute:
+
+```bash
+npm run create-admin:postgres -- admin@exemplo.com uma-senha-segura
+```
+
+As senhas são armazenadas com bcrypt; as sessões usam cookie `httpOnly`, `sameSite=lax` e `secure` em produção. `SESSION_SECRET` é obrigatória no Express de produção. Não existe cadastro público. Todas as rotas de gravação e upload exigem sessão administrativa, e tentativas de login são limitadas com estado persistido no banco.
+
+Formatos de imagem aceitos: JPG, PNG e WebP, até 5 MB; o conteúdo real do arquivo é inspecionado. O carrinho revalida no servidor horário, modalidade, pedido mínimo, produtos, categorias, adicionais, preços e taxa antes de montar a mensagem do WhatsApp. Se a validação falhar, o cliente não usa dados locais como alternativa.
+
+## Verificação
+
+```bash
+npm run check
+```
+
+Esse comando gera o catálogo público, compila o site e executa os testes das regras comerciais. Nenhum script publica o site automaticamente.

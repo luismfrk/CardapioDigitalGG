@@ -317,6 +317,23 @@ header {
   flex-wrap: wrap;
   margin: 35px 0 42px;
 }
+.catalog-search {
+  display: grid;
+  gap: 0.45rem;
+  max-width: 34rem;
+  margin: 0 auto 1rem;
+  color: var(--cream);
+  font-weight: 700;
+}
+.catalog-search input {
+  min-height: 3rem;
+  border: 1px solid #494949;
+  border-radius: 0.75rem;
+  padding: 0 1rem;
+  background: #171717;
+  color: var(--cream);
+  font: inherit;
+}
 .filters button {
   border: 1px solid var(--line);
   background: transparent;

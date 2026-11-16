@@ -9,10 +9,22 @@ import fs from "node:fs";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { db, publicCatalog, settingsObject } from "./db.js";
+import {
+  inspectImage,
+  normalizeWhatsApp,
+  parseSchedule,
+  validateCategoryPayload,
+  validateCart,
+  validateGroupPayload,
+  validateImageUrl,
+  validateProductPayload,
+} from "./business-rules.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const app = express();
 const port = Number(process.env.PORT || 3001);
+if (process.env.NODE_ENV === "production" && !process.env.SESSION_SECRET)
+  throw new Error("SESSION_SECRET é obrigatória em produção.");
 class SQLiteSessionStore extends session.Store {
   constructor(database) {
     super();
@@ -96,38 +108,155 @@ const upload = multer({
       ),
   }),
   limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (_, file, cb) =>
-    cb(null, ["image/jpeg", "image/png", "image/webp"].includes(file.mimetype)),
 });
 const bool = (value) => (value ? 1 : 0);
+const settingKeys = {
+  appearance: new Set([
+    "hero_title",
+    "hero_subtitle",
+    "hero_button",
+    "hero_image",
+    "about",
+    "notice",
+  ]),
+  business: new Set([
+    "business_name",
+    "logo_url",
+    "whatsapp",
+    "instagram",
+    "address",
+    "hours",
+    "delivery_enabled",
+    "pickup_enabled",
+    "delivery_fee_mode",
+    "delivery_fee",
+    "minimum_order",
+    "order_intro",
+    "open_mode",
+    "manual_open",
+    "schedule_json",
+  ]),
+};
+const validateSettings = (section, values) => {
+  const allowed = settingKeys[section];
+  if (
+    !allowed ||
+    !values ||
+    typeof values !== "object" ||
+    Array.isArray(values)
+  )
+    return "Configurações inválidas.";
+  if (Object.keys(values).some((key) => !allowed.has(key)))
+    return "A seção contém uma configuração não permitida.";
+  if (Object.values(values).some((value) => String(value ?? "").length > 2000))
+    return "Um campo excede o limite permitido.";
+  if (values.whatsapp && !normalizeWhatsApp(values.whatsapp))
+    return "Informe o WhatsApp com DDI e DDD.";
+  for (const key of ["logo_url", "hero_image"])
+    if (values[key] && !validateImageUrl(values[key]))
+      return "URL de imagem inválida.";
+  if (values.schedule_json && !parseSchedule(values.schedule_json))
+    return "A agenda semanal contém horários inválidos.";
+  return "";
+};
+const syncGroupRelations = (groupId, body) => {
+  const existingIds = new Set(
+    db
+      .prepare("SELECT id FROM option_items WHERE group_id=?")
+      .all(groupId)
+      .map((item) => Number(item.id)),
+  );
+  const keptIds = new Set();
+  const updateItem = db.prepare(
+    "UPDATE option_items SET name=?,price_delta=?,active=? WHERE id=? AND group_id=?",
+  );
+  const insertItem = db.prepare(
+    "INSERT INTO option_items (group_id,name,price_delta,active) VALUES (?,?,?,?)",
+  );
+  for (const item of body.items || []) {
+    const itemId = Number(item.id);
+    if (Number.isSafeInteger(itemId) && existingIds.has(itemId)) {
+      updateItem.run(
+        item.name.trim(),
+        Number(item.price_delta || 0),
+        bool(item.active),
+        itemId,
+        groupId,
+      );
+      keptIds.add(itemId);
+    } else {
+      const result = insertItem.run(
+        groupId,
+        item.name.trim(),
+        Number(item.price_delta || 0),
+        bool(item.active),
+      );
+      keptIds.add(Number(result.lastInsertRowid));
+    }
+  }
+  for (const itemId of existingIds)
+    if (!keptIds.has(itemId))
+      db.prepare("UPDATE option_items SET active=0 WHERE id=?").run(itemId);
+  db.prepare("DELETE FROM product_option_groups WHERE group_id=?").run(groupId);
+  const link = db.prepare(
+    "INSERT INTO product_option_groups VALUES (?,?) ON CONFLICT DO NOTHING",
+  );
+  for (const productId of body.product_ids || []) link.run(productId, groupId);
+};
 
 app.get("/api/catalog", (_req, res) => res.json(publicCatalog()));
 app.post("/api/cart/validate", (req, res) => {
-  const ids = [
-    ...new Set(
-      (req.body.items || []).map((i) => Number(i.productId)).filter(Boolean),
-    ),
-  ];
-  if (!ids.length) return res.json({ products: [] });
-  const products = db
-    .prepare(
-      `SELECT id,name,price,promo_price,available,visible FROM products WHERE id IN (${ids.map(() => "?").join(",")})`,
-    )
-    .all(...ids);
-  res.json({ products });
+  const result = validateCart({
+    cartItems: req.body.items,
+    fulfillment: req.body.fulfillment,
+    products: db.prepare("SELECT * FROM products").all(),
+    categories: db.prepare("SELECT * FROM categories").all(),
+    groups: db.prepare("SELECT * FROM option_groups").all(),
+    optionItems: db.prepare("SELECT * FROM option_items").all(),
+    links: db.prepare("SELECT * FROM product_option_groups").all(),
+    settings: settingsObject(),
+  });
+  res.status(result.ok ? 200 : 422).json(result);
 });
 app.post("/api/auth/login", async (req, res) => {
-  const admin = db
-    .prepare("SELECT * FROM admins WHERE email=?")
-    .get(String(req.body.email || "").toLowerCase());
+  const email = String(req.body.email || "")
+    .trim()
+    .toLowerCase();
+  const attemptKey = crypto
+    .createHash("sha256")
+    .update(`${req.ip}:${email}`)
+    .digest("hex");
+  const now = Date.now();
+  const attempt = db
+    .prepare("SELECT * FROM login_attempts WHERE key=?")
+    .get(attemptKey);
+  if (attempt?.blocked_until > now)
+    return res
+      .status(429)
+      .json({ error: "Muitas tentativas. Aguarde 15 minutos." });
+  const admin = db.prepare("SELECT * FROM admins WHERE email=?").get(email);
   if (
     !admin ||
     !(await bcrypt.compare(
       String(req.body.password || ""),
       admin.password_hash,
     ))
-  )
+  ) {
+    const attempts =
+      attempt && now - attempt.window_started < 15 * 60_000
+        ? attempt.attempts + 1
+        : 1;
+    db.prepare(
+      "INSERT INTO login_attempts VALUES (?,?,?,?) ON CONFLICT(key) DO UPDATE SET attempts=excluded.attempts,window_started=excluded.window_started,blocked_until=excluded.blocked_until",
+    ).run(
+      attemptKey,
+      attempts,
+      attempt?.window_started || now,
+      attempts >= 5 ? now + 15 * 60_000 : null,
+    );
     return res.status(401).json({ error: "E-mail ou senha inválidos." });
+  }
+  db.prepare("DELETE FROM login_attempts WHERE key=?").run(attemptKey);
   req.session.adminId = admin.id;
   res.json({ email: admin.email });
 });
@@ -190,12 +319,26 @@ app.get("/api/admin/all", auth, (_req, res) =>
     settings: settingsObject(),
   }),
 );
-app.post("/api/admin/upload", auth, upload.single("image"), (req, res) =>
-  req.file
-    ? res.json({ url: `/uploads/${req.file.filename}` })
-    : res.status(400).json({ error: "Envie JPG, PNG ou WebP de até 5 MB." }),
-);
+app.post("/api/admin/upload", auth, upload.single("image"), (req, res) => {
+  if (!req.file)
+    return res
+      .status(400)
+      .json({ error: "Envie JPG, PNG ou WebP de até 5 MB." });
+  const buffer = fs.readFileSync(req.file.path);
+  const type = inspectImage(buffer);
+  if (!type) {
+    fs.unlinkSync(req.file.path);
+    return res.status(400).json({
+      error: "O conteúdo do arquivo não é uma imagem JPG, PNG ou WebP válida.",
+    });
+  }
+  const safePath = `${req.file.path.replace(/\.[^.]+$/, "")}.${type.extension}`;
+  if (safePath !== req.file.path) fs.renameSync(req.file.path, safePath);
+  return res.json({ url: `/uploads/${path.basename(safePath)}` });
+});
 app.post("/api/admin/categories", auth, (req, res) => {
+  const validationError = validateCategoryPayload(req.body);
+  if (validationError) return res.status(400).json({ error: validationError });
   const r = db
     .prepare(
       "INSERT INTO categories (name,image_url,sort_order,active) VALUES (?,?,?,?)",
@@ -209,6 +352,8 @@ app.post("/api/admin/categories", auth, (req, res) => {
   res.json({ id: Number(r.lastInsertRowid) });
 });
 app.put("/api/admin/categories/:id", auth, (req, res) => {
+  const validationError = validateCategoryPayload(req.body);
+  if (validationError) return res.status(400).json({ error: validationError });
   db.prepare(
     "UPDATE categories SET name=?,image_url=?,sort_order=?,active=? WHERE id=?",
   ).run(
@@ -233,10 +378,10 @@ app.delete("/api/admin/categories/:id", auth, (req, res) => {
 });
 app.post("/api/admin/products", auth, (req, res) => {
   const b = req.body;
-  if (b.promo_price && Number(b.promo_price) >= Number(b.price))
-    return res.status(400).json({
-      error: "O preço promocional deve ser menor que o preço normal.",
-    });
+  const validationError = validateProductPayload(b);
+  if (validationError) return res.status(400).json({ error: validationError });
+  if (!db.prepare("SELECT 1 FROM categories WHERE id=?").get(b.category_id))
+    return res.status(400).json({ error: "Categoria não encontrada." });
   const r = db
     .prepare(
       `INSERT INTO products (name,description,ingredients,price,promo_price,category_id,image_url,featured,available,visible,sort_order,demo) VALUES (?,?,?,?,?,?,?,?,?,?,?,0)`,
@@ -258,10 +403,10 @@ app.post("/api/admin/products", auth, (req, res) => {
 });
 app.put("/api/admin/products/:id", auth, (req, res) => {
   const b = req.body;
-  if (b.promo_price && Number(b.promo_price) >= Number(b.price))
-    return res.status(400).json({
-      error: "O preço promocional deve ser menor que o preço normal.",
-    });
+  const validationError = validateProductPayload(b);
+  if (validationError) return res.status(400).json({ error: validationError });
+  if (!db.prepare("SELECT 1 FROM categories WHERE id=?").get(b.category_id))
+    return res.status(400).json({ error: "Categoria não encontrada." });
   db.prepare(
     `UPDATE products SET name=?,description=?,ingredients=?,price=?,promo_price=?,category_id=?,image_url=?,featured=?,available=?,visible=?,sort_order=?,demo=0,updated_at=CURRENT_TIMESTAMP WHERE id=?`,
   ).run(
@@ -308,6 +453,8 @@ app.delete("/api/admin/products/:id", auth, (req, res) => {
 });
 app.post("/api/admin/groups", auth, (req, res) => {
   const b = req.body;
+  const validationError = validateGroupPayload(b);
+  if (validationError) return res.status(400).json({ error: validationError });
   const tx = db.transaction(() => {
     const r = db
       .prepare(
@@ -322,20 +469,15 @@ app.post("/api/admin/groups", auth, (req, res) => {
         bool(b.active),
       );
     const id = Number(r.lastInsertRowid);
-    const add = db.prepare(
-      "INSERT INTO option_items (group_id,name,price_delta,active) VALUES (?,?,?,?)",
-    );
-    (b.items || []).forEach((i) =>
-      add.run(id, i.name, Number(i.price_delta || 0), bool(i.active)),
-    );
-    const link = db.prepare("INSERT INTO product_option_groups VALUES (?,?)");
-    (b.product_ids || []).forEach((pid) => link.run(pid, id));
+    syncGroupRelations(id, b);
     return id;
   });
   res.json({ id: tx() });
 });
 app.put("/api/admin/groups/:id", auth, (req, res) => {
   const b = req.body;
+  const validationError = validateGroupPayload(b);
+  if (validationError) return res.status(400).json({ error: validationError });
   db.transaction(() => {
     db.prepare(
       "UPDATE option_groups SET name=?,selection_type=?,required=?,min_choices=?,max_choices=?,active=? WHERE id=?",
@@ -348,23 +490,7 @@ app.put("/api/admin/groups/:id", auth, (req, res) => {
       bool(b.active),
       req.params.id,
     );
-    db.prepare("DELETE FROM option_items WHERE group_id=?").run(req.params.id);
-    db.prepare("DELETE FROM product_option_groups WHERE group_id=?").run(
-      req.params.id,
-    );
-    const add = db.prepare(
-      "INSERT INTO option_items (group_id,name,price_delta,active) VALUES (?,?,?,?)",
-    );
-    (b.items || []).forEach((i) =>
-      add.run(
-        req.params.id,
-        i.name,
-        Number(i.price_delta || 0),
-        bool(i.active),
-      ),
-    );
-    const link = db.prepare("INSERT INTO product_option_groups VALUES (?,?)");
-    (b.product_ids || []).forEach((pid) => link.run(pid, req.params.id));
+    syncGroupRelations(Number(req.params.id), b);
   })();
   res.json({ ok: true });
 });
@@ -373,11 +499,14 @@ app.delete("/api/admin/groups/:id", auth, (req, res) => {
   res.json({ ok: true });
 });
 app.put("/api/admin/settings", auth, (req, res) => {
+  const { section, values } = req.body;
+  const validationError = validateSettings(section, values);
+  if (validationError) return res.status(400).json({ error: validationError });
   const stmt = db.prepare(
     "INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
   );
   db.transaction(() =>
-    Object.entries(req.body).forEach(([k, v]) => stmt.run(k, String(v ?? ""))),
+    Object.entries(values).forEach(([k, v]) => stmt.run(k, String(v ?? ""))),
   )();
   res.json({ ok: true });
 });

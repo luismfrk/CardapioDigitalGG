@@ -10,13 +10,16 @@
     "start": "node server/index.js",
     "check": "npm run build && node --test server/**/*.test.js",
     "create-admin": "node server/create-admin.js",
+    "create-admin:postgres": "node server/create-postgres-admin.js",
     "migrate:postgres": "node server/migrate-to-postgres.js"
   },
   "dependencies": {
+    "@vercel/blob": "^2.4.0",
     "@vercel/functions": "^3.11.2",
     "@vitejs/plugin-react": "latest",
     "bcryptjs": "latest",
     "better-sqlite3": "latest",
+    "busboy": "^1.6.0",
     "cookie-parser": "latest",
     "dotenv": "latest",
     "express": "latest",
@@ -31,6 +34,7 @@
     "vite": "latest"
   },
   "devDependencies": {
-    "concurrently": "latest"
+    "concurrently": "latest",
+    "prettier": "^3.10.1"
   }
 }

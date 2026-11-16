@@ -88,7 +88,8 @@ function Header({ settings, catalogPage = false }) {
           <button
             className="icon-btn mobile-menu"
             onClick={() => setMenu(!menu)}
-            aria-label="Abrir menu"
+            aria-label={menu ? "Fechar menu" : "Abrir menu"}
+            aria-expanded={menu}
           >
             {menu ? <X /> : <Menu />}
           </button>
@@ -104,7 +105,7 @@ function Hero({ settings }) {
       <div className="container hero-grid">
         <div className="hero-owner-visual">
           <img
-            src="/assets/hero-dono-encantos.png"
+            src={settings.hero_image || "/assets/hero-dono-encantos.png"}
             alt="Dono da Encantos Burger apresentando dois hambúrgueres artesanais"
             fetchPriority="high"
           />
@@ -203,17 +204,30 @@ function ProductModal({ product, onClose }) {
 }
 function MenuSection({ catalog, featuredOnly = false }) {
   const [category, setCategory] = useState("all");
+  const [search, setSearch] = useState("");
   const [custom, setCustom] = useState(null);
   const cart = useCart();
   const products = useMemo(
     () =>
-      catalog.products.filter((p) =>
-        featuredOnly
-          ? Boolean(p.featured)
-          : category === "all" || p.category_id === category,
-      ),
-    [catalog.products, category, featuredOnly],
+      catalog.products.filter((p) => {
+        if (featuredOnly) return Boolean(p.featured);
+        const matchesCategory =
+          category === "all" || p.category_id === category;
+        const term = search.trim().toLocaleLowerCase("pt-BR");
+        const haystack =
+          `${p.name} ${p.description} ${p.ingredients}`.toLocaleLowerCase(
+            "pt-BR",
+          );
+        return matchesCategory && (!term || haystack.includes(term));
+      }),
+    [catalog.products, category, featuredOnly, search],
   );
+  const categories = useMemo(() => {
+    const used = new Set(
+      catalog.products.map((product) => product.category_id),
+    );
+    return catalog.categories.filter((item) => used.has(item.id));
+  }, [catalog.categories, catalog.products]);
   const add = (p) => (p.option_groups?.length ? setCustom(p) : cart.add(p));
   return (
     <section id="cardapio" className="menu-section">
@@ -232,23 +246,34 @@ function MenuSection({ catalog, featuredOnly = false }) {
           <i className="title-line" aria-hidden="true" />
         </div>
         {!featuredOnly && (
-          <div className="filters" role="group" aria-label="Categorias">
-            <button
-              className={category === "all" ? "active" : ""}
-              onClick={() => setCategory("all")}
-            >
-              Todos
-            </button>
-            {catalog.categories.map((c) => (
+          <>
+            <label className="catalog-search">
+              <span>Buscar no cardápio</span>
+              <input
+                type="search"
+                value={search}
+                placeholder="Digite o nome ou ingrediente"
+                onChange={(event) => setSearch(event.target.value)}
+              />
+            </label>
+            <div className="filters" role="group" aria-label="Categorias">
               <button
-                key={c.id}
-                className={category === c.id ? "active" : ""}
-                onClick={() => setCategory(c.id)}
+                className={category === "all" ? "active" : ""}
+                onClick={() => setCategory("all")}
               >
-                {c.name}
+                Todos
               </button>
-            ))}
-          </div>
+              {categories.map((c) => (
+                <button
+                  key={c.id}
+                  className={category === c.id ? "active" : ""}
+                  onClick={() => setCategory(c.id)}
+                >
+                  {c.name}
+                </button>
+              ))}
+            </div>
+          </>
         )}
         <div className="product-grid">
           {products.map((p) => (
@@ -271,7 +296,10 @@ function MenuSection({ catalog, featuredOnly = false }) {
                 <p className="category-label">{p.category_name}</p>
                 <h3>{p.name}</h3>
                 <p>{p.description}</p>
-                <small>{p.ingredients}</small>
+                {p.ingredients.trim().toLocaleLowerCase("pt-BR") !==
+                  p.description.trim().toLocaleLowerCase("pt-BR") && (
+                  <small>{p.ingredients}</small>
+                )}
                 <div className="product-footer">
                   <div>
                     {p.promo_price && <s>{money.format(p.price / 100)}</s>}
@@ -322,6 +350,7 @@ function Cart({ catalog }) {
     notes: "",
   });
   const [message, setMessage] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const settings = catalog.settings;
   const checkout = async () => {
     setMessage("");
@@ -329,62 +358,85 @@ function Cart({ catalog }) {
     if (form.type === "delivery" && !form.address.trim())
       return setMessage("Informe o endereço de entrega.");
     if (!form.payment) return setMessage("Escolha uma forma de pagamento.");
+    setSubmitting(true);
     let validation;
     try {
       validation = await api("/api/cart/validate", {
         method: "POST",
-        body: JSON.stringify({ items: cart.items }),
+        body: JSON.stringify({
+          fulfillment: form.type,
+          items: cart.items.map((item) => ({
+            productId: item.productId,
+            qty: item.qty,
+            choiceIds: item.choices.map((choice) => Number(choice.id)),
+            snapshotPrice: item.basePrice,
+          })),
+        }),
       });
-    } catch {
-      validation = {
-        products: catalog.products.map((product) => ({
-          id: product.id,
-          name: product.name,
-          price: product.price,
-          promo_price: product.promo_price,
-          available: product.available,
-          visible: product.visible,
-        })),
-      };
-    }
-    const changes = [];
-    for (const item of cart.items) {
-      const live = validation.products.find((p) => p.id === item.productId);
-      if (!live || !live.visible || !live.available)
-        changes.push(`${item.name} não está mais disponível`);
-      else if ((live.promo_price || live.price) !== item.basePrice)
-        changes.push(`O preço de ${item.name} foi atualizado`);
-    }
-    if (changes.length)
+    } catch (error) {
+      setSubmitting(false);
       return setMessage(
-        `${changes.join(". ")}. Remova o item e adicione-o novamente.`,
+        error.data?.errors?.join(" ") ||
+          "Não foi possível validar o pedido. Tente novamente.",
       );
-    if (!settings.whatsapp)
+    }
+    if (validation.changes?.length) {
+      setSubmitting(false);
+      return setMessage(
+        `${validation.changes.join(" ")} Revise o carrinho antes de continuar.`,
+      );
+    }
+    if (
+      !/^\d{10,15}$/.test(String(settings.whatsapp || "").replace(/\D/g, ""))
+    ) {
+      setSubmitting(false);
       return setMessage(
         "O canal de pedidos pelo WhatsApp está aguardando configuração.",
       );
+    }
+    const quote = validation.quote;
+    if (
+      form.payment === "cash" &&
+      form.changeFor.trim() &&
+      quote.total !== null
+    ) {
+      const change = Number(
+        form.changeFor
+          .replace(/[^\d,.-]/g, "")
+          .replace(".", "")
+          .replace(",", "."),
+      );
+      if (!Number.isFinite(change) || Math.round(change * 100) <= quote.total) {
+        setSubmitting(false);
+        return setMessage(
+          "O valor para troco deve ser maior que o total do pedido.",
+        );
+      }
+    }
     const lines = [
       settings.order_intro || "Olá! Gostaria de fazer um pedido:",
       "",
-      ...cart.items.map(
+      ...quote.items.map(
         (i) =>
-          `${i.qty}x ${i.name}${i.choices.length ? ` (${i.choices.map((c) => c.name).join(", ")})` : ""} — ${money.format(((i.basePrice + i.choices.reduce((s, c) => s + c.price_delta, 0)) * i.qty) / 100)}`,
+          `${i.quantity}x ${i.name}${i.choices.length ? ` (${i.choices.map((c) => c.name).join(", ")})` : ""} — ${money.format(i.lineTotal / 100)}`,
       ),
       "",
-      `Subtotal: ${money.format(cart.total / 100)}`,
+      `Subtotal: ${money.format(quote.subtotal / 100)}`,
     ];
     if (form.type === "delivery")
       lines.push(
-        settings.delivery_fee_mode === "fixed" && settings.delivery_fee
-          ? `Taxa de entrega: ${money.format(Number(settings.delivery_fee) / 100)}`
+        quote.deliveryFee !== null
+          ? `Taxa de entrega: ${money.format(quote.deliveryFee / 100)}`
           : "Taxa de entrega: a confirmar",
       );
+    if (quote.total !== null)
+      lines.push(`Total: ${money.format(quote.total / 100)}`);
     lines.push(
       `Nome: ${form.name}`,
       `Modalidade: ${form.type === "delivery" ? "Entrega" : "Retirada"}`,
       `Pagamento: ${{ pix: "PIX", card: "Cartão", cash: "Dinheiro" }[form.payment]}`,
     );
-    if (form.address) lines.push(`Endereço: ${form.address}`);
+    if (form.type === "delivery") lines.push(`Endereço: ${form.address}`);
     if (form.payment === "cash")
       lines.push(
         form.changeFor.trim()
@@ -397,6 +449,7 @@ function Cart({ catalog }) {
       "_blank",
       "noopener,noreferrer",
     );
+    setSubmitting(false);
   };
   return (
     <div
@@ -414,7 +467,11 @@ function Cart({ catalog }) {
             <small>SEU PEDIDO</small>
             <h2>Carrinho</h2>
           </div>
-          <button className="icon-btn" onClick={() => cart.setOpen(false)}>
+          <button
+            className="icon-btn"
+            onClick={() => cart.setOpen(false)}
+            aria-label="Fechar carrinho"
+          >
             <X />
           </button>
         </div>
@@ -490,6 +547,7 @@ function Cart({ catalog }) {
                   <input
                     type="radio"
                     checked={form.type === "pickup"}
+                    disabled={settings.pickup_enabled !== "1"}
                     onChange={() => setForm({ ...form, type: "pickup" })}
                   />{" "}
                   Retirada
@@ -498,6 +556,7 @@ function Cart({ catalog }) {
                   <input
                     type="radio"
                     checked={form.type === "delivery"}
+                    disabled={settings.delivery_enabled !== "1"}
                     onChange={() => setForm({ ...form, type: "delivery" })}
                   />{" "}
                   Entrega
@@ -581,8 +640,15 @@ function Cart({ catalog }) {
                   {message}
                 </p>
               )}
-              <button className="btn full" onClick={checkout}>
-                <Check /> Montar pedido no WhatsApp
+              <button
+                className="btn full"
+                onClick={checkout}
+                disabled={submitting}
+              >
+                <Check />{" "}
+                {submitting
+                  ? "Validando pedido..."
+                  : "Montar pedido no WhatsApp"}
               </button>
               <small className="checkout-note">
                 O pedido só será enviado após sua confirmação no WhatsApp.
