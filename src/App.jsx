@@ -234,9 +234,6 @@ function MenuSection({ catalog, featuredOnly = false }) {
       <div className="container">
         <div className="section-title">
           <i className="title-line" aria-hidden="true" />
-          <span>
-            <Flame />
-          </span>
           <div>
             <p>{featuredOnly ? "MAIS PEDIDOS" : "ESCOLHA O SEU"}</p>
             <h2>

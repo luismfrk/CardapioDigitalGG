@@ -2175,6 +2175,11 @@ header {
   gap: 18px;
 }
 
+.section-title > div {
+  flex: 0 1 auto;
+  text-align: center;
+}
+
 .section-title > span {
   width: 42px;
   height: 42px;
