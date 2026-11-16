@@ -37,13 +37,14 @@ export const useCart = () => useContext(CartContext);
 function CartProvider({ children }) {
   const [items, setItems] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem(key)) || [];
+      localStorage.removeItem(key);
+      return JSON.parse(sessionStorage.getItem(key)) || [];
     } catch {
       return [];
     }
   });
   const [open, setOpen] = useState(false);
-  useEffect(() => localStorage.setItem(key, JSON.stringify(items)), [items]);
+  useEffect(() => sessionStorage.setItem(key, JSON.stringify(items)), [items]);
   const add = (product, choices = []) => {
     const signature = JSON.stringify(choices.map((c) => c.id).sort());
     setItems((old) => {
@@ -75,6 +76,7 @@ function CartProvider({ children }) {
     );
   const clear = () => {
     localStorage.removeItem(key);
+    sessionStorage.removeItem(key);
     setItems([]);
     setOpen(false);
   };
