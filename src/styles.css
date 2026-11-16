@@ -3147,12 +3147,23 @@ footer .brand-logo {
   }
 
   .section-title {
-    flex-wrap: wrap;
+    display: grid;
+    justify-items: center;
+    gap: 4px;
+    margin-bottom: 24px;
+  }
+
+  .section-title .title-line {
+    display: none;
+  }
+
+  .section-title > div {
+    width: 100%;
   }
 
   .section-title h2 {
-    max-width: 290px;
-    font-size: 40px;
+    max-width: none;
+    font-size: clamp(35px, 10.5vw, 42px);
   }
 
   .product-grid {
